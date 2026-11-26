@@ -814,16 +814,18 @@
 
           <div class="card">
             <h2>Nhạc nền khi trình chiếu</h2>
-            <p class="desc">Chọn một file nhạc từ máy — nhạc phát lặp trong lúc trình chiếu. Video xuất ra cũng kèm nhạc này nếu trình duyệt hỗ trợ.</p>
+            <p class="desc">Mặc định phát nhạc YouTube playlist “Dương Đăng ❤️ Ánh Tuyết” (2 video, 83 phút + 19 phút, phát nối tiếp rồi lặp lại) trong lúc trình chiếu. Anh cũng có thể chọn một file nhạc từ máy — file máy sẽ phát thay cho nhạc YouTube. Video xuất ra chỉ kèm nhạc file máy, không kèm nhạc YouTube.</p>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
               <button class="btn" id="btnMusic" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>Chọn file nhạc</button>
               <button class="btn" id="btnMusicStop" type="button" disabled>Bỏ nhạc</button>
               <input class="hidden-file" type="file" id="fileMusic" accept="audio/*" />
             </div>
-            <p class="note" id="musicName">Chưa chọn nhạc.</p>
+            <p class="note" id="musicName">Nhạc YouTube: Dương Đăng ❤️ Ánh Tuyết — playlist 2 video, phát lặp.</p>
             <div class="range-row"><span>Âm lượng</span><span class="val" id="vMusicVol"></span></div>
             <input type="range" id="rgMusicVol" min="0" max="100" step="5" />
             <audio id="audioEl" loop preload="auto"></audio>
+            <div id="ytWrap" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none" aria-hidden="true"><div id="ytPlayer"></div></div>
+            <script src="https://www.youtube.com/iframe_api" async></script>
           </div>
 
           <div class="card">
@@ -3730,7 +3732,7 @@
         rangeBind($("rgSizeTitle"), $("vSizeTitle"), (v) => v + "%", () => S.sizeTitle, (v) => (S.sizeTitle = v));
         rangeBind($("rgSizeDate"), $("vSizeDate"), (v) => v + "%", () => S.sizeDate, (v) => (S.sizeDate = v));
         rangeBind($("rgSizeFamily"), $("vSizeFamily"), (v) => v + "%", () => S.sizeFamily, (v) => (S.sizeFamily = v));
-        rangeBind($("rgMusicVol"), $("vMusicVol"), (v) => v + "%", () => S.musicVol, (v) => { S.musicVol = v; $("audioEl").volume = v / 100; });
+        rangeBind($("rgMusicVol"), $("vMusicVol"), (v) => v + "%", () => S.musicVol, (v) => { S.musicVol = v; $("audioEl").volume = v / 100; if (ytAvailable()) { try { ytPlayer.setVolume(v); } catch (e) {} } });
 
         /* transport */
         $("btnPlay").addEventListener("click", () => { mainStage.playing = !mainStage.playing; if (mainStage.playing) mainStage.slideStart = performance.now(); syncTransport(); });
@@ -3927,10 +3929,9 @@
             else if (fp && fp.catch) fp.catch(() => {});
           }
         } catch (e) {}
-        const audioEl = $("audioEl");
-        if (audioEl.src && musicWanted) {
-          if (audioGraph) audioGraph.ctx.resume();
-          audioEl.play().catch(() => {});
+        if (musicWanted) {
+          musicPlay();
+          if (!$("audioEl").src && ytFailed) toast("Nhạc YouTube không phát được ở đây (có thể bị chặn). Anh chọn file mp3 ở mục nhạc nhé.");
         }
         try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
       }
@@ -3940,7 +3941,7 @@
         try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
-        if (!$("audioEl").paused) $("audioEl").pause();
+        musicPause();
       }
       function toggleFullscreen() {
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -3962,9 +3963,10 @@
       $("pMusic").addEventListener("click", () => {
         musicWanted = !musicWanted;
         const audioEl = $("audioEl");
-        if (!audioEl.src) { toast("Chưa chọn file nhạc. Anh chọn nhạc ở mục 10 trước nhé."); return; }
-        if (musicWanted) { if (audioGraph) audioGraph.ctx.resume(); audioEl.play().catch(() => {}); }
-        else audioEl.pause();
+        if (!audioEl.src && ytFailed) { toast("Nhạc YouTube không phát được ở đây. Anh chọn file mp3 ở mục nhạc nhé."); $("pMusic").style.opacity = "0.45"; return; }
+        if (!audioEl.src && !ytReady) { toast("Nhạc YouTube đang tải, Anh đợi vài giây rồi bấm lại nhé."); return; }
+        if (musicWanted) musicPlay();
+        else musicPause();
         $("pMusic").style.opacity = musicWanted ? "1" : "0.45";
       });
       window.addEventListener("resize", () => { if (presentOpen) fitPresent(); });
@@ -3980,11 +3982,53 @@
         else if (e.key === "Escape") closePresent();
       });
 
+      /* ================= YouTube playlist music =================
+         Default music: the wedding playlist PLEzjc6ps7E-A (2 videos,
+         83 min + 19 min), played in order then looped, hidden player.
+         A local mp3 file, when chosen, takes over from YouTube. */
+      const YT_PLAYLIST_ID = "PLEzjc6ps7E-A";
+      const YT_FIRST_VIDEO = "5zojtwcVwOU";
+      const YT_LABEL = "Nhạc YouTube: Dương Đăng ❤️ Ánh Tuyết — playlist 2 video, phát lặp.";
+      let ytPlayer = null, ytReady = false, ytFailed = false;
+      function ytAvailable() { return ytReady && ytPlayer && typeof ytPlayer.playVideo === "function"; }
+      function ytPlay() { if (ytAvailable()) { try { ytPlayer.setVolume(S.musicVol); ytPlayer.playVideo(); } catch (e) {} } }
+      function ytPause() { if (ytAvailable()) { try { ytPlayer.pauseVideo(); } catch (e) {} } }
+      function musicPlay() {
+        const a = $("audioEl");
+        if (a.src) { if (audioGraph) audioGraph.ctx.resume(); a.play().catch(() => {}); }
+        else ytPlay();
+      }
+      function musicPause() {
+        const a = $("audioEl");
+        if (a.src) { if (!a.paused) a.pause(); }
+        else ytPause();
+      }
+      window.onYouTubeIframeAPIReady = function () {
+        try {
+          ytPlayer = new YT.Player("ytPlayer", {
+            videoId: YT_FIRST_VIDEO,
+            playerVars: { listType: "playlist", list: YT_PLAYLIST_ID, autoplay: 0, controls: 0, disablekb: 1, fs: 0, modestbranding: 1, rel: 0, playsinline: 1 },
+            events: {
+              onReady: (ev) => {
+                ytReady = true;
+                try { ev.target.setLoop(true); ev.target.setVolume(S.musicVol); } catch (e) {}
+                if (!$("audioEl").src) $("musicName").textContent = YT_LABEL;
+              },
+              onError: () => {
+                ytFailed = true;
+                if (!$("audioEl").src) $("musicName").textContent = "Nhạc YouTube không phát được ở đây (có thể bị chặn). Anh chọn file mp3 ở trên nhé.";
+              }
+            }
+          });
+        } catch (e) { ytFailed = true; }
+      };
+
       /* ================= Music picker ================= */
       $("btnMusic").addEventListener("click", () => $("fileMusic").click());
       $("fileMusic").addEventListener("change", () => {
         const f = $("fileMusic").files[0];
         if (!f) return;
+        ytPause();
         const audioEl = $("audioEl");
         audioEl.src = URL.createObjectURL(f);
         audioEl.volume = S.musicVol / 100;
@@ -3997,7 +4041,7 @@
         audioEl.pause();
         audioEl.removeAttribute("src");
         audioEl.load();
-        $("musicName").textContent = "Chưa chọn nhạc.";
+        $("musicName").textContent = ytFailed ? "Nhạc YouTube không phát được ở đây (có thể bị chặn). Anh chọn file mp3 ở trên nhé." : YT_LABEL;
         $("btnMusicStop").disabled = true;
         $("fileMusic").value = "";
       });
