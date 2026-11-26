@@ -814,13 +814,13 @@
 
           <div class="card">
             <h2>Nhạc nền khi trình chiếu</h2>
-            <p class="desc">Mặc định phát nhạc YouTube playlist “Dương Đăng ❤️ Ánh Tuyết” (2 video, 83 phút + 19 phút, phát nối tiếp rồi lặp lại) trong lúc trình chiếu. Anh cũng có thể chọn một file nhạc từ máy — file máy sẽ phát thay cho nhạc YouTube. Video xuất ra chỉ kèm nhạc file máy, không kèm nhạc YouTube.</p>
+            <p class="desc">Mặc định phát nhạc YouTube (3 video, phát nối tiếp rồi lặp lại) trong lúc trình chiếu: video cưới 83 phút + 19 phút, rồi piano không lời 2 giờ. Anh cũng có thể chọn một file nhạc từ máy — file máy sẽ phát thay cho nhạc YouTube. Video xuất ra chỉ kèm nhạc file máy, không kèm nhạc YouTube.</p>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
               <button class="btn" id="btnMusic" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>Chọn file nhạc</button>
               <button class="btn" id="btnMusicStop" type="button" disabled>Bỏ nhạc</button>
               <input class="hidden-file" type="file" id="fileMusic" accept="audio/*" />
             </div>
-            <p class="note" id="musicName">Nhạc YouTube: Dương Đăng ❤️ Ánh Tuyết — playlist 2 video, phát lặp.</p>
+            <p class="note" id="musicName">Nhạc YouTube: video cưới (83 phút + 19 phút) + piano không lời 2 giờ, phát lặp.</p>
             <div class="range-row"><span>Âm lượng</span><span class="val" id="vMusicVol"></span></div>
             <input type="range" id="rgMusicVol" min="0" max="100" step="5" />
             <audio id="audioEl" loop preload="auto"></audio>
@@ -3983,12 +3983,13 @@
       });
 
       /* ================= YouTube playlist music =================
-         Default music: the wedding playlist PLEzjc6ps7E-A (2 videos,
-         83 min + 19 min), played in order then looped, hidden player.
-         A local mp3 file, when chosen, takes over from YouTube. */
-      const YT_PLAYLIST_ID = "PLEzjc6ps7E-A";
-      const YT_FIRST_VIDEO = "5zojtwcVwOU";
-      const YT_LABEL = "Nhạc YouTube: Dương Đăng ❤️ Ánh Tuyết — playlist 2 video, phát lặp.";
+         Default music: 3 YouTube videos played in order then looped —
+         the wedding videos (83 min + 19 min) then 2 hours of
+         instrumental wedding piano (May Piano). A local mp3 file,
+         when chosen, takes over from YouTube. */
+      const YT_TRACKS = ["5zojtwcVwOU", "eJBsADowEkA", "7E7BCcfisYM"];
+      const YT_FIRST_VIDEO = YT_TRACKS[0];
+      const YT_LABEL = "Nhạc YouTube: video cưới (83 phút + 19 phút) + piano không lời 2 giờ, phát lặp.";
       let ytPlayer = null, ytReady = false, ytFailed = false;
       function ytAvailable() { return ytReady && ytPlayer && typeof ytPlayer.playVideo === "function"; }
       function ytPlay() { if (ytAvailable()) { try { ytPlayer.setVolume(S.musicVol); ytPlayer.playVideo(); } catch (e) {} } }
@@ -4007,11 +4008,11 @@
         try {
           ytPlayer = new YT.Player("ytPlayer", {
             videoId: YT_FIRST_VIDEO,
-            playerVars: { listType: "playlist", list: YT_PLAYLIST_ID, autoplay: 0, controls: 0, disablekb: 1, fs: 0, modestbranding: 1, rel: 0, playsinline: 1 },
+            playerVars: { autoplay: 0, controls: 0, disablekb: 1, fs: 0, modestbranding: 1, rel: 0, playsinline: 1 },
             events: {
               onReady: (ev) => {
                 ytReady = true;
-                try { ev.target.setLoop(true); ev.target.setVolume(S.musicVol); } catch (e) {}
+                try { ev.target.cuePlaylist({ playlist: YT_TRACKS, index: 0 }); ev.target.setLoop(true); ev.target.setVolume(S.musicVol); } catch (e) {}
                 if (!$("audioEl").src) $("musicName").textContent = YT_LABEL;
               },
               onError: () => {
